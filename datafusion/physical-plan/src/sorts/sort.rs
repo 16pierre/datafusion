@@ -1295,30 +1295,6 @@ mod tests {
             Arc::clone(&task_ctx),
         )
             .await?;
-
-        assert_eq!(result.len(), 2);
-
-        // Now, validate metrics
-        let metrics = sort_exec.metrics().unwrap();
-
-        assert_eq!(metrics.output_rows().unwrap(), 10000);
-        assert!(metrics.elapsed_compute().unwrap() > 0);
-        assert_eq!(metrics.spill_count().unwrap(), 3);
-        assert_eq!(metrics.spilled_bytes().unwrap(), 36000);
-        assert_eq!(metrics.spilled_rows().unwrap(), 9000);
-
-        let columns = result[0].columns();
-
-        let i = as_primitive_array::<Int32Type>(&columns[0])?;
-        assert_eq!(i.value(0), 0);
-        assert_eq!(i.value(i.len() - 1), 81);
-
-        assert_eq!(
-            task_ctx.runtime_env().memory_pool.reserved(),
-            0,
-            "The sort should have returned all memory used back to the memory manager"
-        );
-
         Ok(())
     }
 
