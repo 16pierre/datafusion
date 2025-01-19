@@ -21,11 +21,11 @@ use std::collections::HashMap;
 use std::pin::Pin;
 use std::sync::Arc;
 
-use arrow_array::{ArrayRef, Int32Array, RecordBatch};
+use arrow_array::{ArrayRef, BinaryArray, GenericBinaryArray, Int32Array, RecordBatch};
 use arrow_schema::{DataType, Field, Schema, SchemaRef};
 use datafusion_execution::{SendableRecordBatchStream, TaskContext};
 use futures::{Future, FutureExt};
-
+use rand::{rngs::StdRng, Rng, SeedableRng};
 use crate::memory::MemoryExec;
 use crate::stream::RecordBatchStreamAdapter;
 use crate::streaming::PartitionStream;
@@ -111,14 +111,55 @@ pub fn make_partition(sz: i32) -> RecordBatch {
     RecordBatch::try_new(schema, vec![arr]).unwrap()
 }
 
+/// Return a RecordBatch with a single binary array with random values in a field named "v"
+pub fn make_partition_binary(sz: i32, max_len: usize) -> RecordBatch {
+    let seq_start = 0;
+    let seq_end = sz;
+
+    let mut rng = StdRng::seed_from_u64(42);
+    let binaries: GenericBinaryArray<i32> = (seq_start..seq_end)
+        .map(|_| Some(random_binary(&mut rng, max_len)))
+        .collect();
+
+    let schema = Arc::new(Schema::new(vec![Field::new("v", DataType::Binary, true)]));
+    let arr = Arc::new(BinaryArray::from(binaries));
+    let arr = arr as ArrayRef;
+
+    RecordBatch::try_new(schema, vec![arr]).unwrap()
+}
+
+/// Return a binary vector of random bytes of length 1..=max_len
+fn random_binary(rng: &mut StdRng, max_len: usize) -> Vec<u8> {
+    if max_len == 0 {
+        Vec::new()
+    } else {
+        let len = rng.gen_range(1..=max_len);
+        (0..len).map(|_| rng.gen()).collect()
+    }
+}
+
 /// Returns a `MemoryExec` that scans `partitions` of 100 batches each
 pub fn scan_partitioned(partitions: usize) -> Arc<dyn ExecutionPlan> {
     Arc::new(mem_exec(partitions))
 }
 
+/// Returns a `MemoryExec` that scans `partitions` of 100 binary values each
+pub fn scan_partitioned_binary(partitions: usize, max_length: usize) -> Arc<dyn ExecutionPlan> {
+    Arc::new(mem_exec_binary(partitions, max_length))
+}
+
 /// Returns a `MemoryExec` that scans `partitions` of 100 batches each
 pub fn mem_exec(partitions: usize) -> MemoryExec {
     let data: Vec<Vec<_>> = (0..partitions).map(|_| vec![make_partition(100)]).collect();
+
+    let schema = data[0][0].schema();
+    let projection = None;
+    MemoryExec::try_new(&data, schema, projection).unwrap()
+}
+
+/// Returns a `MemoryExec` that scans `partitions` of 100 binary values each
+pub fn mem_exec_binary(partitions: usize, max_length: usize) -> MemoryExec {
+    let data: Vec<Vec<_>> = (0..partitions).map(|_| vec![make_partition_binary(100, max_length)]).collect();
 
     let schema = data[0][0].schema();
     let projection = None;

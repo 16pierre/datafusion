@@ -1261,6 +1261,69 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_sort_spill_binary() -> Result<()> {
+        let generated_binary_length = 2048;
+
+        let session_config = SessionConfig::new();
+        let sort_spill_reservation_bytes = session_config
+            .options()
+            .execution
+            .sort_spill_reservation_bytes;
+        let runtime = RuntimeEnvBuilder::new()
+            .with_memory_limit(sort_spill_reservation_bytes + 10 * 100 * generated_binary_length, 1.0)
+            .build_arc()?;
+        let task_ctx = Arc::new(
+            TaskContext::default()
+                .with_session_config(session_config)
+                .with_runtime(runtime),
+        );
+
+        let partitions = 100;
+        let input = test::scan_partitioned_binary(partitions, generated_binary_length);
+        let schema = input.schema();
+
+        let sort_exec = Arc::new(SortExec::new(
+            LexOrdering::new(vec![PhysicalSortExpr {
+                expr: col("v", &schema)?,
+                options: SortOptions::default(),
+            }]),
+            Arc::new(CoalescePartitionsExec::new(input)),
+        ));
+
+        let result = collect(
+            Arc::clone(&sort_exec) as Arc<dyn ExecutionPlan>,
+            Arc::clone(&task_ctx),
+        )
+            .await?;
+
+        assert_eq!(result.len(), 2);
+
+        // Now, validate metrics
+        let metrics = sort_exec.metrics().unwrap();
+
+        assert_eq!(metrics.output_rows().unwrap(), 10000);
+        assert!(metrics.elapsed_compute().unwrap() > 0);
+        assert_eq!(metrics.spill_count().unwrap(), 3);
+        assert_eq!(metrics.spilled_bytes().unwrap(), 36000);
+        assert_eq!(metrics.spilled_rows().unwrap(), 9000);
+
+        let columns = result[0].columns();
+
+        let i = as_primitive_array::<Int32Type>(&columns[0])?;
+        assert_eq!(i.value(0), 0);
+        assert_eq!(i.value(i.len() - 1), 81);
+
+        assert_eq!(
+            task_ctx.runtime_env().memory_pool.reserved(),
+            0,
+            "The sort should have returned all memory used back to the memory manager"
+        );
+
+        Ok(())
+    }
+
+
+    #[tokio::test]
     async fn test_sort_fetch_memory_calculation() -> Result<()> {
         // This test mirrors down the size from the example above.
         let avg_batch_size = 400;
