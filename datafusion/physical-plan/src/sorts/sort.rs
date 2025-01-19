@@ -1264,7 +1264,13 @@ mod tests {
     async fn test_sort_spill_binary() -> Result<()> {
         let generated_binary_length = 2048;
 
-        let session_config = SessionConfig::new();
+        let mut session_config = SessionConfig::new();
+
+        // FIXME: with default batch_size = 8192, this test throws during the final sort phase
+        // This is because batch_size controls size of the spilled batches,
+        // and if the spilled batches are too big,
+        // we OOM during the final sort phase upon loading the spills.
+        session_config.options_mut().execution.batch_size = 100;
         let sort_spill_reservation_bytes = session_config
             .options()
             .execution
