@@ -37,6 +37,9 @@ workspace = true
 [lib]
 name = "datafusion_physical_expr"
 
+[features]
+recursive_protection = ["dep:recursive"]
+
 [dependencies]
 ahash = { workspace = true }
 arrow = { workspace = true }
@@ -53,6 +56,7 @@ log = { workspace = true }
 parking_lot = { workspace = true }
 paste = "^1.0"
 petgraph = "0.8.2"
+recursive = { workspace = true, optional = true }
 
 [dev-dependencies]
 arrow = { workspace = true, features = ["test_utils"] }
